@@ -2,6 +2,15 @@ const admin = require('firebase-admin');
 const fs = require('fs');
 const path = require('path');
 
+const parseServiceAccountFile = (filePath) => {
+  const raw = fs.readFileSync(filePath, 'utf8');
+  const parsed = JSON.parse(raw);
+  if (parsed.private_key) {
+    parsed.private_key = parsed.private_key.replace(/\\n/g, '\n');
+  }
+  return parsed;
+};
+
 const loadServiceAccount = () => {
   if (process.env.FIREBASE_SERVICE_ACCOUNT) {
     const parsed = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -11,13 +20,21 @@ const loadServiceAccount = () => {
     return parsed;
   }
 
-  const filePath = path.join(__dirname, 'firebase-service.json');
-  if (fs.existsSync(filePath)) {
-    return require('./firebase-service.json');
+  const candidatePaths = [
+    process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
+    path.join(__dirname, 'firebase-service.json'),
+    '/etc/secrets/firebase-service.json',
+    path.join(process.cwd(), 'firebase-service.json'),
+  ].filter(Boolean);
+
+  for (const filePath of candidatePaths) {
+    if (fs.existsSync(filePath)) {
+      return parseServiceAccountFile(filePath);
+    }
   }
 
   throw new Error(
-    'Firebase service account not configured. Set FIREBASE_SERVICE_ACCOUNT env var or add backend/configs/firebase-service.json'
+    'Firebase service account not configured. Set FIREBASE_SERVICE_ACCOUNT env var, upload firebase-service.json as a Render secret file, or add backend/configs/firebase-service.json'
   );
 };
 

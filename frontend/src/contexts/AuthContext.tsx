@@ -1,6 +1,12 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { apiService } from '@/services/api';
-import { loadStoredUser, saveStoredUser } from '@/lib/auth-storage';
+import {
+  loadStoredUser,
+  loadStoredToken,
+  saveStoredUser,
+  saveStoredToken,
+  clearAuthStorage,
+} from '@/lib/auth-storage';
 import type { AuthUser, AuthResult } from '@/types/auth';
 
 interface AuthContextType {
@@ -24,19 +30,56 @@ export const useAuth = () => {
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(loadStoredUser);
+  const [ready, setReady] = useState(false);
 
-  const persistUser = (nextUser: AuthUser | null) => {
-    saveStoredUser(nextUser);
-    setUser(nextUser);
+  const persistSession = (nextUser: AuthUser | null, token: string | null) => {
+    if (nextUser && token) {
+      saveStoredUser(nextUser);
+      saveStoredToken(token);
+      setUser(nextUser);
+      return;
+    }
+    clearAuthStorage();
+    setUser(null);
   };
+
+  useEffect(() => {
+    const validateSession = async () => {
+      const token = loadStoredToken();
+      if (!token) {
+        clearAuthStorage();
+        setUser(null);
+        setReady(true);
+        return;
+      }
+
+      try {
+        const response = await apiService.getSession();
+        if (response.success && response.data?.user) {
+          saveStoredUser(response.data.user);
+          setUser(response.data.user);
+        } else {
+          clearAuthStorage();
+          setUser(null);
+        }
+      } catch {
+        clearAuthStorage();
+        setUser(null);
+      } finally {
+        setReady(true);
+      }
+    };
+
+    validateSession();
+  }, []);
 
   const login = async (email: string, password: string): Promise<AuthResult> => {
     try {
       const response = await apiService.login(email, password);
 
-      if (response.success && response.data?.user) {
-        persistUser(response.data.user);
-        return { success: true };
+      if (response.success && response.data?.user && response.data?.token) {
+        persistSession(response.data.user, response.data.token);
+        return { success: true, token: response.data.token };
       }
 
       return { success: false, message: response.message || 'Login failed' };
@@ -52,9 +95,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       const response = await apiService.signup(email, password, role);
 
-      if (response.success && response.data?.user) {
-        persistUser(response.data.user);
-        return { success: true, message: response.message };
+      if (response.success && response.data?.user && response.data?.token) {
+        persistSession(response.data.user, response.data.token);
+        return { success: true, message: response.message, token: response.data.token };
       }
 
       return { success: false, message: response.message || 'Signup failed' };
@@ -72,21 +115,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } catch {
       // Clear local session even if the API call fails
     }
-    persistUser(null);
+    persistSession(null, null);
   };
-
-  const storedUser = loadStoredUser();
-  const activeUser = user ?? storedUser;
 
   return (
     <AuthContext.Provider
       value={{
-        user: activeUser,
-        ready: true,
+        user,
+        ready,
         login,
         signup,
         logout,
-        isAuthenticated: !!activeUser,
+        isAuthenticated: !!user,
       }}
     >
       {children}

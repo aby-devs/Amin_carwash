@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/contexts/AuthContext';
+import { apiService } from '@/services/api';
 import { Loader2, Eye, EyeOff } from 'lucide-react';
 
 const SignupPage: React.FC = () => {
@@ -19,11 +20,30 @@ const SignupPage: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [checkingAccess, setCheckingAccess] = useState(true);
+  const [signupEnabled, setSignupEnabled] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
   const { signup } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const loadSignupStatus = async () => {
+      try {
+        const response = await apiService.getSignupStatus();
+        if (response.success && response.data) {
+          setSignupEnabled(response.data.signupEnabled);
+        }
+      } catch {
+        setSignupEnabled(true);
+      } finally {
+        setCheckingAccess(false);
+      }
+    };
+
+    loadSignupStatus();
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -84,6 +104,34 @@ const SignupPage: React.FC = () => {
       setLoading(false);
     }
   };
+
+  if (checkingAccess) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!signupEnabled) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="space-y-1">
+            <CardTitle className="text-2xl font-bold text-center">Registration Closed</CardTitle>
+            <CardDescription className="text-center">
+              New account registration is currently disabled. Contact your manager for access.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild className="w-full">
+              <Link to="/login">Back to Sign In</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (success) {
     return (

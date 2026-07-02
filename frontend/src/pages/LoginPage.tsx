@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Car, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+import { apiService } from "@/services/api";
 
 export function LoginPage() {
   const [formData, setFormData] = useState({
@@ -17,10 +18,26 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [signupEnabled, setSignupEnabled] = useState(true);
   
   const navigate = useNavigate();
   const { toast } = useToast();
   const { login } = useAuth();
+
+  useEffect(() => {
+    const loadSignupStatus = async () => {
+      try {
+        const response = await apiService.getSignupStatus();
+        if (response.success && response.data) {
+          setSignupEnabled(response.data.signupEnabled);
+        }
+      } catch {
+        setSignupEnabled(true);
+      }
+    };
+
+    loadSignupStatus();
+  }, []);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -166,17 +183,19 @@ export function LoginPage() {
               </Button>
             </form>
 
-            <div className="text-center pt-4 border-t border-gray-100">
-              <p className="text-sm text-gray-600">
-                Don't have an account?{' '}
-                <Link 
-                  to="/signup" 
-                  className="text-primary hover:text-primary-hover font-medium transition-colors"
-                >
-                  Sign up here
-                </Link>
-              </p>
-            </div>
+            {signupEnabled && (
+              <div className="text-center pt-4 border-t border-gray-100">
+                <p className="text-sm text-gray-600">
+                  Don't have an account?{' '}
+                  <Link 
+                    to="/signup" 
+                    className="text-primary hover:text-primary-hover font-medium transition-colors"
+                  >
+                    Sign up here
+                  </Link>
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 

@@ -1,8 +1,8 @@
 // API service for communicating with the backend
 import { API_BASE_URL } from '@/lib/api-config';
-import { loadStoredUser } from '@/lib/auth-storage';
+import { loadStoredToken } from '@/lib/auth-storage';
 
-const getStoredUserId = (): string | null => loadStoredUser()?.userId ?? null;
+const getStoredToken = (): string | null => loadStoredToken();
 
 const BASE_URL = API_BASE_URL;
 const RECORDS_BASE_URL = `${BASE_URL}/api/records`;
@@ -109,11 +109,12 @@ class ApiService {
     const baseURL = options.baseURL || BASE_URL;
     const url = `${baseURL}${endpoint}`;
     
-    const userId = getStoredUserId();
+    const token = getStoredToken();
     const defaultOptions: RequestInit = {
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
-        ...(userId ? { 'X-User-Id': userId } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...options.headers,
       },
     };
@@ -254,7 +255,8 @@ class ApiService {
   }
 
   async login(email: string, password: string): Promise<ApiResponse<{
-    user: { userId: string; email: string; name: string; role: string }
+    user: { userId: string; email: string; name: string; role: string };
+    token: string;
   }>> {
     return this.request('/login', {
       method: 'POST',
@@ -264,7 +266,8 @@ class ApiService {
   }
 
   async signup(email: string, password: string, role?: string): Promise<ApiResponse<{
-    user: { userId: string; email: string; name: string; role: string }
+    user: { userId: string; email: string; name: string; role: string };
+    token: string;
   }>> {
     return this.request('/signup', {
       method: 'POST',
@@ -278,6 +281,10 @@ class ApiService {
       method: 'POST',
       baseURL: AUTH_BASE_URL,
     });
+  }
+
+  async getSignupStatus(): Promise<ApiResponse<{ signupEnabled: boolean }>> {
+    return this.request('/signup-status', { baseURL: AUTH_BASE_URL });
   }
 
   // Settings API

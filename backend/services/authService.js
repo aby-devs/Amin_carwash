@@ -1,4 +1,5 @@
-const { admin, realtime_db } = require('../configs/firebase_db');
+const { admin, realtime_db, service_db } = require('../configs/firebase_db');
+const { signToken, setAuthCookie, clearAuthCookie, getTokenFromRequest, verifyTokenSignature } = require('../utils/jwt');
 
 const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
 const FIREBASE_SIGN_IN_URL = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`;
@@ -78,6 +79,30 @@ const resolveUserProfile = async (userId, data) => {
   }
 };
 
+const issueAuthResponse = (res, user) => {
+  const token = signToken({
+    userId: user.userId,
+    email: user.email,
+    role: user.role,
+  });
+  setAuthCookie(res, token);
+  return token;
+};
+
+const isSignupEnabled = async () => {
+  try {
+    const settingsDoc = await service_db.collection('settings').doc('app').get();
+    if (!settingsDoc.exists) {
+      return true;
+    }
+    const settings = settingsDoc.data();
+    return settings.signupEnabled !== false;
+  } catch (error) {
+    console.warn('Could not read signup setting, defaulting to enabled:', error.message);
+    return true;
+  }
+};
+
 const signInWithFirebase = async (email, password) => {
   if (!FIREBASE_API_KEY) {
     throw new Error('FIREBASE_API_KEY is not configured');
@@ -105,6 +130,7 @@ const signInWithFirebase = async (email, password) => {
       userId: data.localId,
       email: data.email,
       name: data.displayName || email.split('@')[0],
+      idToken: data.idToken,
     },
   };
 };
@@ -146,6 +172,7 @@ const signUpWithFirebase = async (email, password) => {
       userId: data.localId,
       email: data.email,
       name: data.displayName || email.split('@')[0],
+      idToken: data.idToken,
     },
   };
 };
@@ -165,11 +192,12 @@ exports.login = async (req, res) => {
 
     const { userId, email: userEmail, name } = authResult.data;
     const user = await resolveUserProfile(userId, { email: userEmail, name });
+    const token = issueAuthResponse(res, user);
 
     return res.status(200).json({
       success: true,
       message: 'Login successful',
-      data: { user },
+      data: { user, token },
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -179,6 +207,14 @@ exports.login = async (req, res) => {
 
 exports.signup = async (req, res) => {
   try {
+    const signupEnabled = await isSignupEnabled();
+    if (!signupEnabled) {
+      return res.status(403).json({
+        success: false,
+        message: 'New account registration is currently disabled. Contact your manager.',
+      });
+    }
+
     const { email, password, role = 'supervisor' } = req.body;
     const trimmedEmail = email?.trim();
 
@@ -211,11 +247,12 @@ exports.signup = async (req, res) => {
       name: displayName,
       role,
     });
+    const token = issueAuthResponse(res, user);
 
     return res.status(201).json({
       success: true,
       message: 'Account created successfully',
-      data: { user },
+      data: { user, token },
     });
   } catch (error) {
     console.error('Signup error:', error);
@@ -225,7 +262,9 @@ exports.signup = async (req, res) => {
 
 exports.logout = async (req, res) => {
   try {
-    const userId = req.headers['x-user-id'];
+    const token = getTokenFromRequest(req);
+    const decoded = token ? verifyTokenSignature(token) : null;
+    const userId = decoded?.userId || req.user?.userId;
 
     if (userId) {
       try {
@@ -241,6 +280,8 @@ exports.logout = async (req, res) => {
       }
     }
 
+    clearAuthCookie(res);
+
     return res.status(200).json({ success: true, message: 'Logout successful' });
   } catch (error) {
     console.error('Logout error:', error);
@@ -250,31 +291,34 @@ exports.logout = async (req, res) => {
 
 exports.getSession = async (req, res) => {
   try {
-    const userId = req.headers['x-user-id'];
-
-    if (!userId) {
+    if (!req.user) {
       return res.status(401).json({ success: false, message: 'Not authenticated' });
     }
 
-    try {
-      const profile = await withTimeout(getUserProfile(userId), 2000);
-      if (profile) {
-        return res.status(200).json({
-          success: true,
-          message: 'Session active',
-          data: { user: formatPublicUser(profile) },
-        });
-      }
-    } catch {
-      // Fall through
-    }
-
-    return res.status(401).json({ success: false, message: 'User not found' });
+    return res.status(200).json({
+      success: true,
+      message: 'Session active',
+      data: { user: req.user },
+    });
   } catch (error) {
     console.error('Session error:', error);
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
+exports.getSignupStatus = async (_req, res) => {
+  try {
+    const signupEnabled = await isSignupEnabled();
+    return res.status(200).json({
+      success: true,
+      data: { signupEnabled },
+    });
+  } catch (error) {
+    console.error('Signup status error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
 exports.formatPublicUser = formatPublicUser;
 exports.getUserProfile = getUserProfile;
+exports.isSignupEnabled = isSignupEnabled;

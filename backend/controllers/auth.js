@@ -7,6 +7,7 @@ exports.login = authService.login;
 exports.signup = authService.signup;
 exports.logout = authService.logout;
 exports.getSession = authService.getSession;
+exports.getSignupStatus = authService.getSignupStatus;
 
 // Helper function to create a user (for manual user creation)
 exports.createUser = async (req, res) => {
@@ -78,6 +79,7 @@ exports.get_settings = async (req, res) => {
     let settings = {
       businessName: 'AutoWash Pro',
       currency: 'KSh',
+      signupEnabled: true,
       paymentMethods: ['Cash', 'Mpesa'],
       defaultServices: [
         'Exterior wash',
@@ -109,6 +111,10 @@ exports.get_settings = async (req, res) => {
 
     if (settingsDoc.exists) {
       settings = { ...settings, ...settingsDoc.data() };
+      if (settings.signupEnabled === undefined) {
+        settings.signupEnabled = true;
+        await settingsRef.set({ signupEnabled: true }, { merge: true });
+      }
     } else {
       // Create default settings if they don't exist
       await settingsRef.set(settings);
@@ -133,18 +139,38 @@ exports.get_settings = async (req, res) => {
 // Update system settings
 exports.update_settings = async (req, res) => {
   try {
-    const settingsData = req.body;
+    const { signupEnabled, businessName, currency, paymentMethods, workingHours } = req.body;
+    const settingsData = {};
 
-    // Add update timestamp
+    if (signupEnabled !== undefined) {
+      if (typeof signupEnabled !== 'boolean') {
+        return res.status(400).json({
+          success: false,
+          message: 'signupEnabled must be a boolean',
+        });
+      }
+      settingsData.signupEnabled = signupEnabled;
+    }
+    if (businessName !== undefined) settingsData.businessName = businessName;
+    if (currency !== undefined) settingsData.currency = currency;
+    if (paymentMethods !== undefined) settingsData.paymentMethods = paymentMethods;
+    if (workingHours !== undefined) settingsData.workingHours = workingHours;
+
+    if (Object.keys(settingsData).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No valid settings provided',
+      });
+    }
+
     settingsData.updatedAt = admin.firestore.FieldValue.serverTimestamp();
 
-    // Update settings
     await service_db.collection('settings').doc('app').set(settingsData, { merge: true });
 
     res.status(200).json({
       success: true,
       message: 'Settings updated successfully',
-      data: settingsData
+      data: settingsData,
     });
 
   } catch (error) {
@@ -482,6 +508,7 @@ module.exports = {
   signup: exports.signup,
   logout: exports.logout,
   getSession: exports.getSession,
+  getSignupStatus: exports.getSignupStatus,
   createUser: exports.createUser,
   get_settings: exports.get_settings,
   update_settings: exports.update_settings,

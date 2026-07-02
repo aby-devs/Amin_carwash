@@ -7,12 +7,13 @@ const { verifyToken, requireManager } = require('../middleware/auth');
 router.post('/login', AuthLogic.login);
 router.post('/signup', AuthLogic.signup);
 router.post('/logout', AuthLogic.logout);
-router.get('/me', AuthLogic.getSession);
+router.get('/me', verifyToken, AuthLogic.getSession);
+router.get('/signup-status', AuthLogic.getSignupStatus);
 router.post('/create-user', AuthLogic.createUser); // For manual user creation
 
 // Settings routes
 router.get('/settings', AuthLogic.get_settings);
-router.put('/settings', AuthLogic.update_settings);
+router.put('/settings', verifyToken, requireManager, AuthLogic.update_settings);
 
 // Service management routes
 router.post('/services', verifyToken, AuthLogic.add_service);

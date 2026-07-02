@@ -1,48 +1,88 @@
 const admin = require('firebase-admin');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
-const parseServiceAccountFile = (filePath) => {
-  const raw = fs.readFileSync(filePath, 'utf8');
-  const parsed = JSON.parse(raw);
-  if (parsed.private_key) {
-    parsed.private_key = parsed.private_key.replace(/\\n/g, '\n');
+const backendDir = path.join(__dirname, '..');
+
+const normalizePrivateKey = (privateKey) => {
+  if (!privateKey || typeof privateKey !== 'string') {
+    return privateKey;
   }
+
+  const normalized = privateKey.includes('\\n')
+    ? privateKey.replace(/\\n/g, '\n')
+    : privateKey;
+
+  if (!normalized.includes('-----BEGIN PRIVATE KEY-----')) {
+    throw new Error(
+      'Firebase private_key is malformed. Re-upload the full service account JSON from Firebase Console.'
+    );
+  }
+
+  return normalized;
+};
+
+const parseServiceAccount = (raw) => {
+  const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+
+  if (!parsed.project_id || !parsed.client_email || !parsed.private_key) {
+    throw new Error(
+      'Firebase service account JSON is incomplete. It must include project_id, client_email, and private_key.'
+    );
+  }
+
+  parsed.private_key = normalizePrivateKey(parsed.private_key);
   return parsed;
+};
+
+const parseServiceAccountFile = (filePath) => {
+  const raw = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
+  return parseServiceAccount(raw);
+};
+
+const resolveServiceAccountPath = (configuredPath) => {
+  const expanded = configuredPath.startsWith('~/')
+    ? path.join(os.homedir(), configuredPath.slice(2))
+    : configuredPath;
+
+  return path.isAbsolute(expanded)
+    ? expanded
+    : path.resolve(backendDir, expanded);
 };
 
 const loadServiceAccount = () => {
   if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    const parsed = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    if (parsed.private_key) {
-      parsed.private_key = parsed.private_key.replace(/\\n/g, '\n');
-    }
-    return parsed;
+    console.log('Loading Firebase credentials from FIREBASE_SERVICE_ACCOUNT env var');
+    return parseServiceAccount(process.env.FIREBASE_SERVICE_ACCOUNT);
   }
 
-  const candidatePaths = [
-    process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
-    path.join(__dirname, 'firebase-service.json'),
-    '/etc/secrets/firebase-service.json',
-    path.join(process.cwd(), 'firebase-service.json'),
-  ].filter(Boolean);
-
-  for (const filePath of candidatePaths) {
-    if (fs.existsSync(filePath)) {
-      return parseServiceAccountFile(filePath);
-    }
+  const configuredPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+  if (!configuredPath) {
+    throw new Error(
+      'FIREBASE_SERVICE_ACCOUNT_PATH is not set. Add it to backend/.env (local) or Render environment variables.'
+    );
   }
 
-  throw new Error(
-    'Firebase service account not configured. Set FIREBASE_SERVICE_ACCOUNT env var, upload firebase-service.json as a Render secret file, or add backend/configs/firebase-service.json'
-  );
+  const filePath = resolveServiceAccountPath(configuredPath);
+  if (!fs.existsSync(filePath)) {
+    throw new Error(
+      `Firebase service account file not found at ${filePath}. Check FIREBASE_SERVICE_ACCOUNT_PATH in your .env.`
+    );
+  }
+
+  console.log(`Loading Firebase credentials from ${filePath}`);
+  return parseServiceAccountFile(filePath);
 };
 
 const database_url = process.env.DATABASE_URL;
 
 if (!admin.apps.length) {
+  const serviceAccount = loadServiceAccount();
+  console.log(`Firebase project: ${serviceAccount.project_id}`);
+
   const config = {
-    credential: admin.credential.cert(loadServiceAccount()),
+    credential: admin.credential.cert(serviceAccount),
   };
 
   if (database_url) {

@@ -41,14 +41,17 @@ import {
   Clock,
   Plus,
   Car,
-  X
+  X,
+  UserPlus
 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { apiService } from '@/services/api';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface AppSettings {
   availableServices?: string[];
+  signupEnabled?: boolean;
 }
 
 interface User {
@@ -63,12 +66,14 @@ interface User {
 
 const SettingsPage: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>({
-    availableServices: []
+    availableServices: [],
+    signupEnabled: true,
   });
   
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [usersLoading, setUsersLoading] = useState(false);
+  const [savingSignupSetting, setSavingSignupSetting] = useState(false);
   const [error, setError] = useState('');
   const [newServiceName, setNewServiceName] = useState('');
   const [addingService, setAddingService] = useState(false);
@@ -91,7 +96,8 @@ const SettingsPage: React.FC = () => {
       
       if (response.success && response.data) {
         setSettings({
-          availableServices: response.data.availableServices || []
+          availableServices: response.data.availableServices || [],
+          signupEnabled: response.data.signupEnabled !== false,
         });
       }
     } catch (err) {
@@ -121,6 +127,34 @@ const SettingsPage: React.FC = () => {
       });
     } finally {
       setUsersLoading(false);
+    }
+  };
+
+  const handleSignupToggle = async (enabled: boolean) => {
+    try {
+      setSavingSignupSetting(true);
+      const response = await apiService.updateSettings({ signupEnabled: enabled });
+
+      if (response.success) {
+        setSettings((prev) => ({ ...prev, signupEnabled: enabled }));
+        toast({
+          title: enabled ? 'Signup Enabled' : 'Signup Disabled',
+          description: enabled
+            ? 'New users can register from the signup page.'
+            : 'New user registration is now closed.',
+        });
+      } else {
+        throw new Error(response.message || 'Failed to update signup setting');
+      }
+    } catch (err) {
+      console.error('Failed to update signup setting:', err);
+      toast({
+        title: 'Error Updating Setting',
+        description: err instanceof Error ? err.message : 'Failed to update signup setting',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingSignupSetting(false);
     }
   };
 
@@ -323,6 +357,44 @@ const SettingsPage: React.FC = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Registration */}
+      <Card className="border-l-4 border-l-blue-500 max-w-md">
+        <CardHeader className="px-3 pt-3 pb-2 md:px-6 md:pt-6 md:pb-4">
+          <CardTitle className="flex items-center text-sm sm:text-base">
+            <UserPlus className="h-4 w-4 sm:h-5 sm:w-5 mr-2 text-blue-600" />
+            Registration
+          </CardTitle>
+          <CardDescription className="text-xs sm:text-sm">
+            Control whether new users can access the signup page
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-3 pb-3 md:px-6 md:pb-6">
+          <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
+            <div className="space-y-1">
+              <Label htmlFor="signup-enabled" className="text-sm font-medium">
+                Allow new signups
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                {user?.role === 'manager'
+                  ? 'When disabled, the signup link is hidden on login and the signup page is blocked.'
+                  : 'Only managers can change this setting.'}
+              </p>
+            </div>
+            <Switch
+              id="signup-enabled"
+              checked={settings.signupEnabled !== false}
+              onCheckedChange={handleSignupToggle}
+              disabled={savingSignupSetting || user?.role !== 'manager'}
+            />
+          </div>
+          {settings.signupEnabled === false && (
+            <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+              Signup is currently disabled. New users cannot create accounts.
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Service Management */}
       <Card className="border-l-4 border-l-orange-500">

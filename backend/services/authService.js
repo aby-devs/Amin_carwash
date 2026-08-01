@@ -5,7 +5,7 @@ const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
 const FIREBASE_SIGN_IN_URL = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`;
 const FIREBASE_SIGN_UP_URL = `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_API_KEY}`;
 
-const RTDB_TIMEOUT_MS = 4000;
+const RTDB_TIMEOUT_MS = 2000;
 
 const withTimeout = (promise, ms = RTDB_TIMEOUT_MS) =>
   Promise.race([
@@ -43,7 +43,7 @@ const ensureUserProfile = async (userId, { email, name, role = 'supervisor' }) =
       userId,
       email,
       name: name || email.split('@')[0],
-      role,
+      role: role || 'supervisor',
       createdAt: admin.database.ServerValue.TIMESTAMP,
       firebaseUid: userId,
       isActive: true,
@@ -53,12 +53,16 @@ const ensureUserProfile = async (userId, { email, name, role = 'supervisor' }) =
   }
 
   const profile = snapshot.val();
-  await userRef.update({
+  // Preserve the existing role from the database
+  const existingRole = profile.role;
+  
+  // Make the update non-blocking - don't wait for it
+  userRef.update({
     lastLogin: admin.database.ServerValue.TIMESTAMP,
     isActive: true,
-  });
+  }).catch(err => console.warn('Failed to update lastLogin:', err));
 
-  return { ...profile, email: profile.email || email };
+  return { ...profile, email: profile.email || email, role: existingRole || profile.role };
 };
 
 const resolveUserProfile = async (userId, data) => {
@@ -67,15 +71,18 @@ const resolveUserProfile = async (userId, data) => {
     return formatPublicUser(profile);
   } catch (error) {
     console.warn('RTDB profile sync skipped:', error.message);
+    // Quick fallback with shorter timeout
     try {
-      const existing = await withTimeout(getUserProfile(userId), 2000);
+      const existing = await withTimeout(getUserProfile(userId), 1000);
       if (existing) {
         return formatPublicUser(existing);
       }
     } catch {
       // Use auth response only
     }
-    return formatPublicUser(buildFallbackProfile(userId, data));
+    // Build fallback profile but try to preserve role from existing data
+    const fallback = buildFallbackProfile(userId, data);
+    return formatPublicUser(fallback);
   }
 };
 

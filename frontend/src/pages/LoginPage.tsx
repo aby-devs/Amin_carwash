@@ -36,6 +36,7 @@ export function LoginPage() {
       }
     };
 
+    // Make signup status check non-blocking
     loadSignupStatus();
   }, []);
 
